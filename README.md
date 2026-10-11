@@ -11,6 +11,8 @@ python -m pytest
 The example exits with status 1 because it contains one repeated message and
 one shared campaign. A clean split exits with status 0, which makes the script
 usable in CI.
+See [usage and CI guidance](docs/USAGE_AND_CI.md) for the exact CSV contract,
+JSON output, exit-code handling and known blind spots.
 
 The comparison lowercases text, removes punctuation and collapses whitespace.
 It does not detect paraphrases, translations or copied content with substantial
