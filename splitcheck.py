@@ -5,6 +5,8 @@ import argparse
 import csv
 import json
 import re
+from collections.abc import Iterator
+from itertools import chain
 from pathlib import Path
 
 
@@ -12,35 +14,58 @@ def normalise(text: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", text.casefold()))
 
 
-def read_rows(path: Path, id_column: str, text_column: str) -> list[dict[str, str]]:
+def _iter_rows(
+    path: Path, id_column: str, text_column: str, group_column=None
+) -> Iterator[dict[str, str]]:
+    """Validate CSV rows incrementally without retaining unused columns."""
     with path.open(newline="", encoding="utf-8-sig") as stream:
-        rows = list(csv.DictReader(stream))
-    if not rows:
-        raise ValueError(f"{path.name} has no rows")
-    missing = {id_column, text_column} - set(rows[0])
-    if missing:
-        raise ValueError(f"{path.name} is missing columns: {sorted(missing)}")
-    ids = [row[id_column].strip() for row in rows]
-    if any(not item for item in ids) or len(ids) != len(set(ids)):
-        raise ValueError(f"{path.name} IDs must be non-empty and unique")
-    return rows
+        reader = csv.DictReader(stream)
+        first = next(reader, None)
+        if first is None:
+            raise ValueError(f"{path.name} has no rows")
+        missing = {id_column, text_column} - set(first)
+        if missing:
+            raise ValueError(f"{path.name} is missing columns: {sorted(missing)}")
+        if group_column and group_column not in first:
+            raise ValueError(f"Both files need group column: {group_column}")
+        seen_ids = set()
+        for row in chain((first,), reader):
+            row_id = row[id_column].strip()
+            if not row_id or row_id in seen_ids:
+                raise ValueError(f"{path.name} IDs must be non-empty and unique")
+            seen_ids.add(row_id)
+            yield row
+
+
+def read_rows(path: Path, id_column: str, text_column: str) -> list[dict[str, str]]:
+    """Return validated rows for callers that explicitly need materialisation."""
+    return list(_iter_rows(path, id_column, text_column))
 
 
 def audit(train: Path, test: Path, id_column="id", text_column="text", group_column=None) -> dict:
-    train_rows = read_rows(train, id_column, text_column)
-    test_rows = read_rows(test, id_column, text_column)
-    train_text = {normalise(row[text_column]): row[id_column] for row in train_rows}
-    overlaps = [
-        {"train_id": train_text[key], "test_id": row[id_column]}
-        for row in test_rows if (key := normalise(row[text_column])) in train_text
-    ]
-    groups = []
-    if group_column:
-        if group_column not in train_rows[0] or group_column not in test_rows[0]:
-            raise ValueError(f"Both files need group column: {group_column}")
-        train_groups = {row[group_column] for row in train_rows if row[group_column]}
-        groups = sorted(train_groups & {row[group_column] for row in test_rows if row[group_column]})
-    return {"train_rows": len(train_rows), "test_rows": len(test_rows),
+    train_text = {}
+    train_groups = set()
+    train_count = 0
+    for row in _iter_rows(train, id_column, text_column, group_column):
+        train_count += 1
+        # Preserve the existing last-training-ID selection for duplicate texts.
+        train_text[normalise(row[text_column])] = row[id_column]
+        if group_column and row[group_column]:
+            train_groups.add(row[group_column])
+
+    overlaps = []
+    shared_groups = set()
+    test_count = 0
+    for row in _iter_rows(test, id_column, text_column, group_column):
+        test_count += 1
+        key = normalise(row[text_column])
+        if key in train_text:
+            overlaps.append({"train_id": train_text[key], "test_id": row[id_column]})
+        if group_column and row[group_column] in train_groups:
+            shared_groups.add(row[group_column])
+
+    groups = sorted(shared_groups)
+    return {"train_rows": train_count, "test_rows": test_count,
             "exact_text_overlaps": overlaps, "shared_groups": groups,
             "passed": not overlaps and not groups}
 
