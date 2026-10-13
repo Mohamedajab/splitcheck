@@ -14,6 +14,11 @@ usable in CI.
 See [usage and CI guidance](docs/USAGE_AND_CI.md) for the exact CSV contract,
 JSON output, exit-code handling and known blind spots.
 
+CSV rows are processed incrementally using a training-text hash map and ID/group
+sets, rather than keeping both full datasets in memory. See the
+[algorithm and benchmark notes](docs/ALGORITHM.md) for complexity and a
+reproducible comparison.
+
 The comparison lowercases text, removes punctuation and collapses whitespace.
 It does not detect paraphrases, translations or copied content with substantial
 edits. In a real project, choose groups that match the deployment risk (such as

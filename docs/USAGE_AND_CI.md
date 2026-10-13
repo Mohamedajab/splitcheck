@@ -19,6 +19,10 @@ The file must contain at least one row and a header. It is read using
 `utf-8-sig`, which also accepts a UTF-8 byte-order mark. Change column
 names with `--id-column`, `--text-column` and `--group-column`.
 
+The audit processes rows incrementally rather than retaining both complete CSVs.
+It still stores the training text index, validation IDs and report findings;
+see [Algorithm and measurement](ALGORITHM.md) for the memory boundary and benchmark.
+
 Group values are compared as provided; there is **no normalisation of group
 labels**. For realistic leakage checks, apply a consistent grouping scheme
 upstream (for example the same campaign ID format in both files).
